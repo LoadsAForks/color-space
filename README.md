@@ -97,7 +97,7 @@ It is not a color toolbox — parsing, interpolation, ΔE, gamut mapping, contra
 
 ## Credits
 
-Thanks to the researchers, theorists, specifiers, implementors — and the libraries that informed this one.
+Thanks to the researchers, theorists, specifiers, implementors and the libraries that helped this one happen.
 
 | Library | Spaces | Ranges | Camera log · CAM · historic | Backends | Speed (M op/s) |
 |---|---:|---|---|---|---:|
