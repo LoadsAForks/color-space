@@ -1658,7 +1658,16 @@ const copy=t=>{ navigator.clipboard?.writeText(t); toast() }
 // the masthead value input: live like the channel inputs — a valid CSS color applies as you type
 let vRow=null   // phones seat the view selects in the format dropdown – assigned by the header injection
 const cdEl=document.getElementById('cd'), cdwEl=cdEl?.closest('.cdw'), cvalEl=document.getElementById('cval'), gpillEl=document.getElementById('gpill')
-const ftrEl=document.getElementById('ftr')
+const ftrEl=document.getElementById('ftr'), hueLineEl=document.querySelector('.hueline'), fgradEl=document.querySelector('.fgrad')
+const currentStatic=[hueLineEl,fgradEl,document.getElementById('lutszL'),document.getElementById('api-tab-core')?.parentElement], CURRENT_SETTLE=140
+let groupTabsEl=null, codeTabsEl=null, accentT=0
+const setCurrentUI=fx=>{ if(!groupTabsEl?.isConnected) groupTabsEl=document.querySelector('.gtabs')
+	if(!codeTabsEl?.isConnected) codeTabsEl=document.getElementById('cseg')
+	for(const el of [...currentStatic,groupTabsEl,codeTabsEl]) if(el&&el._cur!==fx){ el._cur=fx; el.style.setProperty('--cur',fx) }
+	if(PDOWN||autoColor){ if(accentT){ clearTimeout(accentT); accentT=0 } return }
+	clearTimeout(accentT); accentT=0; if(document.documentElement._accent===fx)return
+	accentT=setTimeout(()=>{ accentT=0; if(PDOWN||autoColor)return
+		document.documentElement._accent=fx; document.documentElement.style.accentColor=fx },CURRENT_SETTLE) }
 // the palette-match chip: under a palette lens the masthead names the nearest entry –
 // the color's address IN the chosen palette – and a click snaps to it
 const palmEl=document.getElementById('palm')
@@ -1778,7 +1787,7 @@ let pkDrag=null
 imgPk.addEventListener('pointerdown',e=>{ pkDrag=e.pointerId; imgPk.setPointerCapture(pkDrag); pkRead(e) })   // the press picks, the drag keeps picking — the release keeps the choice
 imgPk.addEventListener('pointermove',e=>{ if(e.pointerId===pkDrag) pkRead(e) })
 const pkEnd=e=>{ if(e.pointerId!==pkDrag) return; pkDrag=null; try{ imgPk.releasePointerCapture(e.pointerId) }catch{}
-	renderFast(); if(open()){ flushCatalogValues(); queuePlaneSettle() } else flushCatalogSecondary() }
+	renderFast(); if(open()){ flushCatalogValues(); queuePlaneSettle() } else settleCatalog() }
 imgPk.addEventListener('pointerup',pkEnd); imgPk.addEventListener('pointercancel',pkEnd)
 imgPk.title='press and drag to pick — the release keeps the colour'
 imgX.addEventListener('click',()=>clearImage())
@@ -2320,10 +2329,12 @@ cat.addEventListener('input',e=>{ const r=e.target; if(!r.classList?.contains('n
 	if(master.s!==s){ const mv=valsFor(s); if(!mv) return; master={ s, vals:mv } }
 	dragEntI=+r.dataset.i; master.vals[dragEntI]=+r.value
 	dragEnt=ent2; scheduleFast() })
-cat.addEventListener('change',e=>{ if(!e.target.classList?.contains('nrg')) return
-	const s2=e.target.closest('.ent')?.dataset.s, i2=+e.target.dataset.i
-	renderFast(); releaseDragEnt(); if(s2) snapGlide(e.target,s2,i2)
-	scheduleFast(); if(open()) paintPlanes(false) })
+const finishCatalogRange=r=>{ const ent=r.closest('.ent'), i2=+r.dataset.i; if(ent!==dragEnt||i2!==dragEntI)return
+	const s2=ent.dataset.s
+	renderFast(); releaseDragEnt(); snapGlide(r,s2,i2); settleCatalog()
+	scheduleFast(); if(open()) paintPlanes(false) }
+cat.addEventListener('change',e=>{ if(e.target.classList?.contains('nrg')) finishCatalogRange(e.target) })
+cat.addEventListener('pointercancel',e=>{ if(e.target.classList?.contains('nrg')) finishCatalogRange(e.target) })
 function wireCat(){   // every per-ent attachment, in one place — runs when the catalog EXISTS (ensureCat): index pages sync, name views at idle behind the open dossier
 catEnts.clear()
 // Picker color is inherited once from #cat. Strip the prerender's per-input seed so a
@@ -2389,7 +2400,7 @@ const wireEnt=ent=>{ const s=ent.dataset.s   // real spaces; barred cards wire t
 			ch.onpointermove=move
 			ch.onpointerup=()=>{ ch.onpointermove=null; ch.onpointerup=null; ch.onpointercancel=null; ch.style.cursor=''; cvEl?.classList.remove('on'); ch.classList.remove('live')
 				squelch=true; setTimeout(()=>squelch=false,0)
-				renderFast(); releaseDragEnt(); snapGlide(ch.querySelector('.nrg'),s,i)   // settle BEFORE releasing the row — the focused input must adopt the press
+				renderFast(); releaseDragEnt(); snapGlide(ch.querySelector('.nrg'),s,i); settleCatalog()   // first mirror the held row, then settle every range from the released value
 				scheduleFast(); if(open()) paintPlanes(false) }
 			ch.onpointercancel=ch.onpointerup }) }) }   // a cancelled touch (scroll steal) must release dragEnt too, or the catalog stays pinned to one row
 // visible rows wire NOW; the long tail wires in idle slices — ~4000 listener
@@ -2726,28 +2737,24 @@ const QTIP={ 'smooth':'continuous, unquantized',
 const qKey=v=>v==null?'smooth':String(v)
 const qFromKey=v=>v==='smooth'?null:v==='10'?10:v==='20'?20:v
 let dragBar=null   // the slider being dragged — its own background stays frozen
-let dragEnt=null, dragEntI=-1   // active row/channel stay live; secondary slider surfaces update on the shared throttle
-function releaseDragEnt(){ const held=dragEnt; dragEnt=null; dragEntI=-1; flushCatalogSecondary()
-	if(held){ held._tk=''; for(const p of ['--tkc','--tki','--tkv']) held.style.removeProperty(p) } }
+let dragEnt=null, dragEntI=-1   // active row/channel stay live; secondary slider surfaces use the shared throttle
+function releaseDragEnt(){ const held=dragEnt; dragEnt=null; dragEntI=-1
+	if(held){ held._tk=''; held._cur=''; for(const p of ['--tkc','--tki','--tkv','--cur']) held.style.removeProperty(p) } }
 let QM='oklab'   // the palette lenses' distance metric — session-only, like Q
 const MTIP={ oklab:'modern perceptual distance', de2000:'CIE industry standard', de76:'plain CIELAB distance', redmean:'classic RGB heuristic' }
 const MLABEL={ oklab:'OKLab', de2000:'ΔE2000', de76:'ΔE76', redmean:'Redmean' }
 let Q=null, qRaf=0   // session-only, always smooth on load — a persisted quantize mode reads as broken sliders ("rec2020 snaps") a week later; the select is a lens, not a setting
 try{ localStorage.removeItem('csQ') }catch{}   // clear the mode older sessions persisted
-// the gamut lens: which display gamut the plots and sliders are cut by ('off' = none)
+// the dossier lens: which gamut its plots and sliders are cut by ('off' = none)
 const GAMS=['srgb','p3','rec2020']
 const GAMLABEL={ srgb:'sRGB', p3:'P3', rec2020:'Rec.2020', vis:'surface', locus:'light', clip:'⚠' }   // conventional casings – brands as brands, common nouns lowercase   // surface = the Rösch–MacAdam object-color solid (what a lit surface can show); light = every real light, the full spectral locus – the true no-limit view
 const GAMTITLE={ srgb:'fits sRGB – every standard display shows it losslessly', p3:'beyond sRGB, fits P3 – needs a wide-gamut display; sRGB screens clip it', rec2020:'beyond P3, fits Rec.2020 – most displays clip it', vis:'beyond every display, yet a lit surface can show it – inside the object-color solid', locus:'no surface shows it, but it is a real light – on the spectral locus', clip:'outside the locus – not a color; the preview clips' }
-// 'human' is the fullest REAL shape (the visible gamut) and the no-display-cut state
-// for the plots — there is nothing to show beyond it but imaginary coordinates, which
-// the always-drawn range cage already frames. (Legacy 'off' collapses to srgb default.)
-// human by default: the widest real view — a display gamut is an opt-in LIMIT, chosen in
-// the dossier's switch, and its ghosting also appears on the catalog's current-space row;
-// other catalog rows retain full reach until they become current.
-let GM=[...GAMS,'vis','locus'].includes(localStorage.csGm)?localStorage.csGm:'vis'   // surface by default – light's cone spans far past most boxes and reads as noise first; light stays one click away as the true no-limit view
-// the lens the current-space sweeps render under. A 1-channel locus: under a display lens the
-// all-out ghosting IS its definition; under the human lens it is all-in by definition –
-// and the discretized solid would wrongly fail its own rim.
+// Surface is the dossier default: the widest reflective view that still reads as a
+// compact body. Catalog sliders stay on Light for unrestricted adjustment. Gamut
+// comparison belongs to the dossier.
+let GM=[...GAMS,'vis','locus'].includes(localStorage.csGm)?localStorage.csGm:'vis'
+// The dossier's sweep lens. A 1-channel locus under a display lens is all ghost; under
+// Surface or Light it is all in by definition, so the discretized solid must not test its rim.
 const gmFor=cls=>cls.ch.length>1?GM:GM==='vis'||GM==='locus'?'off':GM
 const gamLin={ srgb:X=>space.xyz.lrgb(...X), p3:X=>space.xyz['p3-linear'](...X), rec2020:X=>space.xyz['rec2020-linear'](...X) }
 // the human lens asks a different question than a display gamut: not "can this screen
@@ -2792,11 +2799,10 @@ let viewFromURL=null   // assigned by the injection below; the boot route calls 
 		const qLegend=QSEG.map(([mo,lb])=>`${lb} – ${QTIP[qKey(mo)]}`).join('\n'), mLegend=METRICS.map(m2=>`${MLABEL[m2]} – ${MTIP[m2]}`).join('\n')
 		const gamTip=g=>({ srgb:'standard web gamut', p3:'wide Apple-display gamut', rec2020:'ultra-wide UHD gamut', vis:'colors a lit surface can show – the object-color solid', locus:'every real light – the full spectral reach, no limit' })[g]
 		const gLegend=[...GAMS,'vis','locus'].map(g=>`${GAMLABEL[g]} – ${gamTip(g)}`).join('\n')
-		vctl.innerHTML=`<select id="qseg" aria-label="segmented rendering mode" title="${qLegend}">${QGROUPS.map(([gn,os])=>gn?`<optgroup label="${gn}">${os.map(qOpt).join('')}</optgroup>`:os.map(qOpt).join('')).join('')}</select><select id="mseg" aria-label="palette distance metric" title="${mLegend}" hidden>${METRICS.map(m2=>`<option value="${m2}" title="${MTIP[m2]}">${MLABEL[m2]}</option>`).join('')}</select><select id="gseg" aria-label="gamut limits" title="${gLegend}">${[...GAMS,'vis','locus'].map(g=>`<option value="${g}" title="${gamTip(g)}"${g===GM?' selected':''}>${GAMLABEL[g]}</option>`).join('')}</select>`
+		vctl.innerHTML=`<select id="qseg" aria-label="segmented rendering mode" title="${qLegend}">${QGROUPS.map(([gn,os])=>gn?`<optgroup label="${gn}">${os.map(qOpt).join('')}</optgroup>`:os.map(qOpt).join('')).join('')}</select><select id="mseg" aria-label="palette distance metric" title="${mLegend}" hidden>${METRICS.map(m2=>`<option value="${m2}" title="${MTIP[m2]}">${MLABEL[m2]}</option>`).join('')}</select><select id="gseg" aria-label="dossier gamut limits" title="${gLegend}">${[...GAMS,'vis','locus'].map(g=>`<option value="${g}" title="${gamTip(g)}"${g===GM?' selected':''}>${GAMLABEL[g]}</option>`).join('')}</select>`
 		const qs=vctl.querySelector('#qseg'), ms=vctl.querySelector('#mseg'), gs=vctl.querySelector('#gseg')
 		gs.onchange=()=>{ GM=gs.value; try{ localStorage.csGm=GM }catch{}   // radio: one gamut always selected – the solid always shows SOME shape
-			if(open()){ wire3d(); renderFast(); queuePlaneSettle() }
-			else{ renderFast(); paintCatalogGrad(); paintCatalogVals() } }
+			if(open()){ wire3d(); renderFast(); queuePlaneSettle() } }
 		// phones: all three ride INSIDE the value's format dropdown – the tight bar keeps its icons
 		vRow=Object.assign(document.createElement('div'),{className:'dctl vrow'})
 		const seatViews=()=>{ const home=MOBQ.matches?vRow:vctl; if(qs.parentElement!==home) home.append(qs,ms,gs) }
@@ -4047,13 +4053,14 @@ function buildDetail(){ const s=selected, cls=classify(s), m=meta[s]
 			if(dragBar!==el){ clearClusterSnaps(); dragBar=el; el.classList.add('live') }
 			master.vals[i]=+r.value; el._dragF=clamp((+r.value-c.min)/(c.max-c.min),0,1)
 			scheduleFast() })
-		detail.addEventListener('change',e=>{ const r=e.target; if(!r.classList?.contains('nrg')) return
-			const el=r.closest('.bar2'); if(!el) return
+		const finishRange=r=>{ const el=r.closest('.bar2'); if(!el||dragBar!==el) return
 			const s2=selected, i=+el.dataset.i, c=classify(s2).ch[i]
 			el.classList.remove('live')
 			el._snapHint=el._dragF; snapGlide(r,s2,i); dragBar=null
 			const vin=detail.querySelector(`#bigch .bch[data-i="${i}"] .nv`), vv=valsFor(s2)?.[i]; if(vin&&isFinite(vv)) vin.value=vv.toFixed(decOf(c))
-			renderFast(false); queuePlaneSettle(); catUp() }) }
+			renderFast(false); queuePlaneSettle(); catUp() }
+		detail.addEventListener('change',e=>{ if(e.target.classList?.contains('nrg')) finishRange(e.target) })
+		detail.addEventListener('pointercancel',e=>{ if(e.target.classList?.contains('nrg')) finishRange(e.target) }) }
 	// the link runs both ways: hovering or focusing a big input blinks its slider's picker
 	detail.querySelectorAll('#bigch .bch').forEach(b=>{ const bar=detail.querySelector(`.bar2[data-i="${b.dataset.i}"]`); if(!bar) return
 		const sync=()=>bar.classList.toggle('live',b.matches(':hover')||b.contains(document.activeElement))
@@ -4207,14 +4214,13 @@ function wireBar(el,s){
 	dragBar=el; apply(e)   // the press itself picks – dragBar from the down, so a focused input tracks the click too (a press is not typing)
 	const move=ev=>{ if(!moved&&Math.abs(ev.clientX-x0)>3){ moved=true; el.style.cursor='none'; bchEl()?.classList.add('on'); el.classList.add('live') }
 		apply(ev) }
-	const up=()=>{ el.onpointermove=null; el.onpointerup=null; el.style.cursor=''; bchEl()?.classList.remove('on'); el.classList.remove('live')
+	const up=()=>{ el.onpointermove=null; el.onpointerup=null; el.onpointercancel=null; el.style.cursor=''; bchEl()?.classList.remove('on'); el.classList.remove('live')
 		el._snapHint=el._dragF; snapGlide(el.querySelector('.nrg'),s,i); dragBar=null
 		const vin=detail.querySelector(`#bigch .bch[data-i="${i}"] .nv`), vv=valsFor(s)?.[i]; if(vin&&isFinite(vv)) vin.value=vv.toFixed(decOf(c))
 		renderFast(false); queuePlaneSettle(); catUp() }
-	el.onpointermove=move; el.onpointerup=up }) }
-// the dimmed catalog behind the dossier catches up on every RELEASE — values, gradients
-// and the catalog in one release settle
-const catUp=()=>{ if(open()) flushCatalogValues() }
+	el.onpointermove=move; el.onpointerup=up; el.onpointercancel=up }) }
+// A dossier release flushes background thumbs and gradients in the same frame.
+const catUp=()=>{ if(open()) settleCatalog() }
 let plFreeze=null   // plane being dragged in a color-cluster mode – its bitmap stays frozen
 function wirePlane(pl){
 	// corner-label ink samples this canvas every repaint – declare the readback before first paint
@@ -4748,10 +4754,8 @@ addEventListener('pointerdown',e=>{ if(e.isPrimary){ PDOWN=true
 addEventListener('pointerup',e=>{ if(e.isPrimary) PDOWN=false },true)
 addEventListener('pointercancel',e=>{ if(e.isPrimary) PDOWN=false },true)
 addEventListener('blur',()=>PDOWN=false)
-// Catalog strips stay CSS-only under one fixed human-validity lens: impossible /
-// non-visible coordinates remain fully transparent, while half-transparent display-
-// gamut ghosting belongs only to the dossier. The current space is live; other spaces
-// recalculate on the throttled tier and dissolve old→new without exposing the paper.
+// Catalog strips stay CSS-only on Light. Real lights remain available; imaginary
+// coordinates are transparent. Display and Surface limits belong to the dossier.
 const RAMP_GUIDES=48, LIVE_RAMP_GUIDES=16, SECONDARY_RAMP_GUIDES=8
 const transitionMs=el=>{ const d=getComputedStyle(el).transitionDuration.split(',')[0].trim(); return parseFloat(d)*(d.endsWith('ms')?1:1000)||0 }
 const setCatalogGradient=(ch,bg,morph=true)=>{ if(!morph){ ch.style.background=bg
@@ -4773,7 +4777,7 @@ const catalogLeadSpace=()=>open()&&!isBarred(selected)?selected:master.s
 function paintCatalogGrad(ents,skipI=-1,guides=(PDOWN||autoColor)?LIVE_RAMP_GUIDES:RAMP_GUIDES,morph=true){ const hx=hex(RGB()), leadSpace=catalogLeadSpace()
 	;(ents||visibleEnts()).forEach(ent=>{ const s=ent.dataset.s
 		if(liteOff(ent)&&!ent.classList.contains('pop'))return
-		const cls=classify(s), vals=valsFor(s), n=s==='rgb'?1:guides, lead=s===leadSpace, lens=gmFor(cls); if(!vals)return
+		const cls=classify(s), vals=valsFor(s), n=s==='rgb'?1:guides, lead=s===leadSpace, lens='off'; if(!vals)return
 		const gkey=(lead?master.s+'|'+master.vals.join():hx)+`:0:${n}:${lens}:${qKey(Q)}${PALMODES.has(Q)?':'+QM:''}`
 		if(skipI<0&&ent.dataset.g===gkey) return
 		let complete=true
@@ -4789,20 +4793,21 @@ function paintCatalogGrad(ents,skipI=-1,guides=(PDOWN||autoColor)?LIVE_RAMP_GUID
 				:`linear-gradient(90deg, ${ramp(s,vals,i,c.min,c.max,n,lens).join(',')})`
 			setCatalogGradient(ch,grad+', var(--checker)',morph); ch._g=gkey })
 		if(complete) ent.dataset.g=gkey }) }
-// The active row's values and all native picker positions stay live. Inactive numbers
-// use a light 100ms cadence; gradient fields keep the 300ms tier. Current-space gradients remain live.
+// Every native picker stays live. Inactive numbers update every 100ms; secondary
+// gradients cycle through low-cost guides while held and repaint in full on release.
 const motionTkEnts=new Set()
 const setTk=(root,hx,ink0)=>{ if(root._tk===hx)return; root._tk=hx
 	root.style.setProperty('--tkc',hx); root.style.setProperty('--tki',ink0); root.style.setProperty('--tkv',ink0==='#fff'?'var(--dark)':'#fff') }
-const clearMotionTk=()=>{ for(const ent of motionTkEnts){ ent._tk=''; for(const p of ['--tkc','--tki','--tkv']) ent.style.removeProperty(p) } motionTkEnts.clear() }
-const stampTk=(hx,ink0)=>{ if(PDOWN||autoColor)return   // changing an inherited var on all 162 rows forces a page-wide style recalc per frame
-	setTk(cat,hx,ink0); clearMotionTk() }
+const setCur=(root,hx)=>{ if(root._cur===hx)return; root._cur=hx; root.style.setProperty('--cur',hx) }
+const clearMotionTk=()=>{ for(const ent of motionTkEnts){ ent._tk=ent._cur=''; for(const p of ['--tkc','--tki','--tkv','--cur']) ent.style.removeProperty(p) } motionTkEnts.clear() }
+const stampTk=(hx,ink0)=>{ if(PDOWN||autoColor)return   // changing inherited vars on all 162 rows forces a page-wide style recalc per frame
+	setTk(cat,hx,ink0); setCur(cat,hx); clearMotionTk() }
 const detailTk=(hx,ink0)=>{ detail.querySelectorAll('.bar2,.pl').forEach(root=>setTk(root,hx,ink0)) }
-function paintCatalogVals(ents,{values=true,thumbs=true,tokens=true}={}){ const rgb=RGB(), exact=master.s+'|'+master.vals.join()
+function paintCatalogVals(ents,{values=true,thumbs=true}={}){ const rgb=RGB(), exact=master.s+'|'+master.vals.join()
 	// the pickers' fill is the FACE color – under a palette-class lens that is the snapped
 	// entry, not the raw coordinate (a P3 green thumb once outshone its tailwind pick)
 	const qf3=qTriple(Q), frgb2=qf3?byteRGB(qf3(rgb)):rgb, hx=hex(frgb2), ink0=ink(frgb2)
-	if(thumbs&&tokens) stampTk(hx,ink0)
+	if(thumbs) stampTk(hx,ink0)
 	if(open()) detailTk(hx,ink0)
 	;(ents||visibleEnts()).forEach(ent=>{ const s=ent.dataset.s
 		const full=!liteOff(ent)||ent.classList.contains('pop'), key=exact, cvs=ent._cvs??=ent.querySelectorAll('.cv')
@@ -4835,39 +4840,42 @@ function paintCatalogVals(ents,{values=true,thumbs=true,tokens=true}={}){ const 
 			if(vals){ const nr=ch._nrg??=ch.querySelector('.nrg')
 				if(nr){ if(nr.style.length){ nr.style.removeProperty('--tkc'); nr.style.removeProperty('--tki') }
 					if(!nr._glide&&!(PDOWN&&ent===dragEnt&&i===dragEntI&&document.activeElement===nr)&&+nr.value!==vals[i]) nr.value=vals[i] } } }) }) }
-function paintCatalogPickers(ents,rgb=RGB(),hx=hex(rgb),tokens=true){ const ink0=ink(rgb), rows=ents||screenEnts(), moving=PDOWN||autoColor
-	if(tokens){ if(moving) rows.forEach(ent=>{ setTk(ent,hx,ink0); motionTkEnts.add(ent) })
-		else stampTk(hx,ink0) }   // one inherited settle makes every current and future catalog picker correct
+function paintCatalogPickers(ents,rgb,hx){ if(!rgb){ const raw=RGB(), qf=qTriple(Q); rgb=qf?byteRGB(qf(raw)):raw; hx=hex(rgb) }
+	const ink0=ink(rgb), rows=ents||screenEnts(), moving=PDOWN||autoColor
+	if(moving) rows.forEach(ent=>{ setTk(ent,hx,ink0); setCur(ent,hx); motionTkEnts.add(ent) })
+	else stampTk(hx,ink0)   // one inherited settle makes every current and future catalog picker correct
 	;rows.forEach(ent=>{ if(liteOff(ent)&&!ent.classList.contains('pop'))return
 		const vals=valsFor(ent.dataset.s); if(!vals)return
 		;(ent._chs??=ent.querySelectorAll('.ch')).forEach((ch,i)=>{ const nr=ch._nrg??=ch.querySelector('.nrg'); if(!nr)return
 			if(nr.style.length){ nr.style.removeProperty('--tkc'); nr.style.removeProperty('--tki') }
 			if(!nr._glide&&!(PDOWN&&ent===dragEnt&&i===dragEntI&&document.activeElement===nr)&&+nr.value!==vals[i]) nr.value=vals[i] }) }) }
-const CATALOG_VALUE_THROTTLE=100, CATALOG_THROTTLE=300
+const CATALOG_VALUE_THROTTLE=100, CATALOG_THROTTLE_SPAN=300
 let catValueLast=0, catValueTimer=0, catSlowLast=0, catSlowTimer=0, catSlowCursor=0, catSlowKey='', catSlowPending=0
 const activeCatalogEnt=()=>{ const ent=dragEnt||catEnts.get(catalogLeadSpace())
 	return ent&&screenVis.has(ent.dataset.s)?ent:null }
 const flushCatalogValues=()=>{ clearTimeout(catValueTimer); catValueTimer=0; catValueLast=performance.now()
-	vfF={}; vfM=master; const rows=screenEnts(), rgb=RGB(); paintCatalogVals(rows,{thumbs:false}); paintCatalogPickers(rows,rgb,hex(rgb),!open()) }
+	vfF={}; vfM=master; const rows=screenEnts(), rgb=RGB(), qf=qTriple(Q), frgb=qf?byteRGB(qf(rgb)):rgb; paintCatalogVals(rows,{thumbs:false}); paintCatalogPickers(rows,frgb,hex(frgb)) }
 const paintCatalogThrottledValues=(all=false)=>{ const wait=CATALOG_VALUE_THROTTLE-(performance.now()-catValueLast)
 	const paint=()=>{ clearTimeout(catValueTimer); catValueTimer=0
 		vfF={}; vfM=master; const active=all?null:activeCatalogEnt(), rows=screenEnts().filter(ent=>ent!==active)
 		paintCatalogVals(rows,{thumbs:false}); catValueLast=performance.now() }
 	if(wait<=0) paint(); else if(!catValueTimer) catValueTimer=setTimeout(paint,wait) }
 const secondaryCatalogEnts=active=>screenEnts().filter(ent=>ent!==active&&(!liteOff(ent)||ent.classList.contains('pop')))
-function flushCatalogSecondary(all=true){ clearTimeout(catSlowTimer); catSlowTimer=0; catSlowLast=performance.now()
-	const active=open()?null:activeCatalogEnt(), rows=secondaryCatalogEnts(active)
-	if(all){ clearTimeout(catValueTimer); catValueTimer=0; catSlowPending=0; catSlowKey=master.s+'|'+master.vals.join(); catValueLast=catSlowLast; paintCatalogVals(screenEnts()); paintCatalogGrad(rows,-1,RAMP_GUIDES,true)
-		if(active) paintCatalogGrad([active],dragEnt?dragEntI:-1,RAMP_GUIDES,false) }
-	else if(rows.length){ const ent=rows[catSlowCursor++%rows.length]
-		paintCatalogGrad([ent],-1,SECONDARY_RAMP_GUIDES,true)
-		catSlowPending=Math.max(0,catSlowPending-1); if(catSlowPending) scheduleCatalogSecondary() } }
+const catalogGradientKey=()=>catalogLeadSpace()+'|'+master.s+'|'+master.vals.join()+'|'+qKey(Q)+'|'+(PALMODES.has(Q)?QM:'')
+function paintCatalogSecondary(){ clearTimeout(catSlowTimer); catSlowTimer=0; catSlowLast=performance.now()
+	const active=open()?null:activeCatalogEnt(), rows=secondaryCatalogEnts(active); if(!rows.length)return
+	const ent=rows[catSlowCursor++%rows.length]
+	paintCatalogGrad([ent],-1,(PDOWN||autoColor)?SECONDARY_RAMP_GUIDES:RAMP_GUIDES,true)
+	catSlowPending=Math.max(0,catSlowPending-1); if(catSlowPending) scheduleCatalogSecondary() }
 function scheduleCatalogSecondary(){ const active=open()?null:activeCatalogEnt(), count=secondaryCatalogEnts(active).length; if(!count)return
-	const key=master.s+'|'+master.vals.join(); if(key!==catSlowKey){ catSlowKey=key; catSlowPending=count }
+	const key=catalogGradientKey(); if(key!==catSlowKey){ catSlowKey=key; catSlowPending=count }
 	if(!catSlowPending)return
-	const wait=CATALOG_THROTTLE/count-(performance.now()-catSlowLast)
-	if(wait<=0) flushCatalogSecondary(false)
-	else if(!catSlowTimer) catSlowTimer=setTimeout(()=>flushCatalogSecondary(false),wait) }
+	const wait=Math.max(0,CATALOG_THROTTLE_SPAN/count-(performance.now()-catSlowLast))
+	if(!catSlowTimer) catSlowTimer=setTimeout(paintCatalogSecondary,wait) }
+const settleCatalog=()=>{ clearTimeout(catSlowTimer); catSlowTimer=0; catSlowLast=performance.now(); flushCatalogValues()
+	const active=open()?null:activeCatalogEnt(), rows=secondaryCatalogEnts(active)
+	paintCatalogGrad(rows,-1,RAMP_GUIDES,true); if(active) paintCatalogGrad([active],-1,RAMP_GUIDES,false)
+	catSlowKey=catalogGradientKey(); catSlowPending=0 }
 function renderFast(solid=true){
 	vfF={}; vfM=master   // new frame, new conversions – the memo lives one renderFast-to-renderFast span (drag frames mutate master.vals in place, so identity alone can't carry it)
 	const rgb=RGB(), hx=hex(rgb)
@@ -4878,14 +4886,13 @@ function renderFast(solid=true){
 	const qf2=qTriple(Q), frgb=qf2?byteRGB(qf2(rgb)):rgb, fx=qf2?hex(frgb):hx
 	if(cdEl&&document.activeElement!==cdEl) cdEl.value=fx.toLowerCase()
 	if(cdwEl&&cdwEl._hx!==fx){ cdwEl._hx=fx; cdwEl.style.setProperty('--sw',fx); cdwEl.style.setProperty('--swk',ink(frgb))
-		// ONE variable carries the current color: --cur on the root feeds the header rule,
-		// the footer wall, the active tab underlines, the focused-input underlines and the
-		// native accent-color – dependency-tracked, so only its few consumers recalc.
 		// JS keeps only the footer's ink flip: true WCAG relative luminance to pure
 		// black/white (a midtone wall gives neither theme ink the 4.5:1 the axe demands)
-		document.documentElement.style.setProperty('--cur',fx)
 		if(ftrEl){ const wl=frgb.reduce((t,c,i)=>{ const u=c/255; return t+[0.2126,0.7152,0.0722][i]*(u<=0.03928?u/12.92:((u+0.055)/1.055)**2.4) },0)
 			ftrEl.style.color=wl>=0.18?'#000':'#fff' } }   // the slot's swatch + its tick-pair ring track the current color
+	// An inherited --cur on <html> made Chrome recalculate all ~8,000 elements per drag
+	// frame. Stamp only its consumers; native accent-color catches up at rest.
+	setCurrentUI(fx)
 	// the untouched boot color stays an invitation (placeholder), not an asserted value —
 	// reference AND values: the default space's own sliders mutate master in place
 	const mj=master.vals.join()
@@ -4905,9 +4912,9 @@ function renderFast(solid=true){
 				palmEl.removeAttribute('data-tip') } } }   // re-arm the bubble with the fresh title
 	{ const active=activeCatalogEnt(), dossierOpen=open()
 		if(active&&!dossierOpen){ paintCatalogVals([active]); paintCatalogGrad([active],dragEnt?dragEntI:-1,(PDOWN||autoColor)?LIVE_RAMP_GUIDES:RAMP_GUIDES,false) }
-		paintCatalogPickers(screenEnts(),rgb,hx,!dossierOpen)   // every background picker position stays live; hidden color tokens wait for close
+		paintCatalogPickers(screenEnts(),frgb,fx)   // every visible thumb follows the hand; offscreen rows catch up on entry
 		paintCatalogThrottledValues(dossierOpen)   // background numbers use the 100ms tier
-		scheduleCatalogSecondary() }   // behind a dossier every visible gradient, including the selected row, uses 300ms
+		scheduleCatalogSecondary() }   // secondary gradients take the 300ms tier while held
 	if(!open()||isBarred(selected)) return   // barred cards have no live color content
 	detailTk(fx,ink(frgb))   // the dossier's own frame keeps its thumbs and lanes in the FACE color
 	const s=selected, cls=classify(s), vals=valsFor(s)
@@ -5119,7 +5126,7 @@ let raf, settleT
 const scheduleFast=(ambient=false)=>{ if(!ambient) autoColor=false
 	cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{
 		renderFast()
-		clearTimeout(settleT); settleT=setTimeout(()=>{ if(!open()&&!PDOWN) flushCatalogSecondary() },140)
+		clearTimeout(settleT); settleT=setTimeout(()=>{ if(!open()&&!PDOWN) settleCatalog() },CURRENT_SETTLE)
 		if(!PDOWN&&performance.now()>planeNext) paintPlanes(true) }) }
 
 // theme: init happens inline in <head> (pre-paint); this only toggles + persists

@@ -28,6 +28,11 @@ try {
 	assert.match(initialGradient, /linear-gradient/, 'catalog strips use CSS gradients')
 	assert.match(initialGradient, /rgb\([^)]*\.\d+/, 'gradient guides retain sub-byte color precision')
 	assert.doesNotMatch(initialGradient, /\d(?:\.\d+)?%\s+\d(?:\.\d+)?%/, 'smooth mode has interpolated stops, not hard sampled bands')
+	const mainLensesBefore=await page.locator('.ent[data-g]').evaluateAll(els=>els.map(el=>el.dataset.g))
+	assert.equal(mainLensesBefore.length>1&&mainLensesBefore.every(key=>/:off(?::|$)/.test(key)),true,'every populated catalog slider renders on full Light')
+	await page.locator('#gseg').selectOption('srgb'); await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))
+	assert.deepEqual(await page.locator('.ent[data-g]').evaluateAll(els=>els.map(el=>el.dataset.g)),mainLensesBefore,'dossier limits do not repaint any main slider')
+	await page.locator('#gseg').selectOption('vis')
 	assert.equal(await page.locator('#cd').inputValue(), '#808080', 'undefined color starts neutral gray')
 	await page.locator('#upfl').click(); await page.waitForSelector('#uppop:not([hidden])')
 	const specimens=page.locator('#uppop .upim:not(.upld)')
@@ -49,27 +54,59 @@ try {
 	assert.equal(await page.locator('#uppop .upld').count(),1,'upload remains available after the canonical seven')
 	await page.locator('#upfl').click()
 	const liveTier=await page.evaluate(async()=>{ const src=document.querySelector('.ent[data-s="rgb"] .nrg[data-i="0"]')
-		const neighbor=document.querySelector('.ent[data-s="rgb"] .ch[data-i="1"]'), currentVal=document.querySelector('.ent[data-s="rgb"] .cv[data-i="0"]'), otherLane=document.querySelector('.ent[data-s="p3"] .ch'), otherVal=document.querySelector('.ent[data-s="p3"] .cv'), otherRange=document.querySelector('.ent[data-s="p3"] .nrg')
-		const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))), set=v=>{ src.value=v; src.dispatchEvent(new Event('input',{bubbles:true})) }, pause=ms=>new Promise(r=>setTimeout(r,ms))
+		const neighbor=document.querySelector('.ent[data-s="rgb"] .ch[data-i="1"]'), currentVal=document.querySelector('.ent[data-s="rgb"] .cv[data-i="0"]'), otherLane=document.querySelector('.ent[data-s="p3"] .ch'), otherVal=document.querySelector('.ent[data-s="p3"] .cv'), otherRange=document.querySelector('.ent[data-s="p3"] .nrg'), hueLine=document.querySelector('.hueline')
+		const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))), set=v=>{ src.value=v; src.dispatchEvent(new Event('input',{bubbles:true})) }, pause=ms=>new Promise(r=>setTimeout(r,ms)), cur=el=>getComputedStyle(el).getPropertyValue('--cur').trim(), rowKeys=()=>[...document.querySelectorAll('.ent:not(.lite)')].filter(el=>{ const r=el.getBoundingClientRect(); return r.bottom>0&&r.top<innerHeight }).map(el=>({s:el.dataset.s,key:el.querySelector('.ch')?._g||el.dataset.g||''}))
+		let rootWrites=0; const rootObserver=new MutationObserver(()=>rootWrites++); rootObserver.observe(document.documentElement,{attributes:true,attributeFilter:['style']})
 		src.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:17,isPrimary:true}))
-		const g0=otherLane._g||otherLane.closest('.ent').dataset.g; set(160); await frame()
-		for(let n=0;n<50&&(otherLane._g||otherLane.closest('.ent').dataset.g)===g0;n++) await pause(10)
-		const mid={gradient:neighbor.style.background,value:otherVal.value,thumb:otherRange.value,otherGradient:otherLane._g}
-		set(190); await frame(); const immediate={gradient:neighbor.style.background,currentValue:currentVal.value,thumb:otherRange.value,otherGradient:otherLane._g}
+		set(160); await frame()
+		const mid={gradient:neighbor.style.background,value:otherVal.value,thumb:otherRange.value,thumbColor:getComputedStyle(otherRange).getPropertyValue('--tkc'),otherGradient:otherLane._g,uiColor:hueLine.style.getPropertyValue('--cur')}
+		set(190); await frame(); const uiColor=cur(hueLine), scoped=[hueLine,document.querySelector('.fgrad'),document.getElementById('lutszL'),document.getElementById('api-tab-core')?.parentElement,document.querySelector('.gtabs'),src.closest('.ent')].filter(Boolean).map(cur)
+		const immediate={gradient:neighbor.style.background,currentValue:currentVal.value,thumb:otherRange.value,thumbColor:getComputedStyle(otherRange).getPropertyValue('--tkc'),otherGradient:otherLane._g,uiColor,scoped}
 		const vd=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value'), writes=[]
 		Object.defineProperty(otherVal,'value',{configurable:true,get(){return vd.get.call(this)},set(v){writes.push(performance.now());vd.set.call(this,v)}})
 		const st=performance.now(); await new Promise(done=>{ let k=0; const tick=t=>{ set(190+(k++%45)); t-st<240?requestAnimationFrame(tick):done() }; requestAnimationFrame(tick) })
-		delete otherVal.value; const throttled={writes:writes.length,value:otherVal.value}; await pause(180); const settled={otherGradient:otherLane._g}
-		set(245); const beforeRelease=otherVal.value
-		src.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:17,isPrimary:true})); src.dispatchEvent(new Event('change',{bubbles:true})); const released={value:otherVal.value}; return {mid,immediate,throttled,settled,beforeRelease,released} })
+		delete otherVal.value; const throttled={writes:writes.length,value:otherVal.value}; await pause(180); const held={thumb:otherRange.value,otherGradient:otherLane._g,rootWrites}; rootObserver.disconnect()
+		set(245); const beforeRelease={value:otherVal.value,thumb:otherRange.value,otherGradient:otherLane._g}
+		src.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:17,isPrimary:true})); src.dispatchEvent(new Event('change',{bubbles:true})); const released={value:otherVal.value,thumb:otherRange.value,otherGradient:otherLane._g,rows:rowKeys()}
+		await pause(500); const post={accent:document.documentElement.style.accentColor,current:getComputedStyle(hueLine).backgroundColor}; return {mid,immediate,throttled,held,beforeRelease,released,post} })
 	assert.notEqual(liveTier.immediate.gradient,liveTier.mid.gradient,'current-space neighboring gradients update live')
+	assert.notEqual(liveTier.immediate.uiColor,liveTier.mid.uiColor,'scoped current-color UI stays live during a drag')
+	assert.equal(liveTier.immediate.scoped.length===6&&liveTier.immediate.scoped.every(color=>color===liveTier.immediate.uiColor),true,'every static current-color consumer follows the scoped drag color')
+	assert.equal(liveTier.held.rootWrites,0,'a held drag never mutates inherited style on the document root')
 	assert.equal(+liveTier.immediate.currentValue,190,'the actively dragged row keeps its numeric value live')
 	assert.equal(liveTier.throttled.writes>0&&liveTier.throttled.writes<=4,true,'other-space numeric writes stay bounded to the 100ms tier during a drag burst')
 	assert.notEqual(liveTier.throttled.value,liveTier.mid.value,'other-space numeric inputs catch up during the 100ms tier')
-	assert.notEqual(liveTier.released.value,liveTier.beforeRelease,'release always flushes the final throttled numeric values')
-	assert.notEqual(liveTier.immediate.thumb,liveTier.mid.thumb,'other-space slider pickers update live')
-	assert.equal(liveTier.immediate.otherGradient,liveTier.mid.otherGradient,'other-space gradients remain on the throttled tier')
-	assert.notEqual(liveTier.settled.otherGradient,liveTier.immediate.otherGradient,'other-space gradients catch up on the 300ms tier')
+	assert.notEqual(liveTier.released.value,liveTier.beforeRelease.value,'release always flushes the final throttled numeric values')
+	assert.notEqual(liveTier.immediate.thumb,liveTier.mid.thumb,'every visible slider picker follows a held drag immediately')
+	assert.notEqual(liveTier.immediate.thumbColor,liveTier.mid.thumbColor,'every visible slider picker color follows a held drag immediately')
+	assert.equal(liveTier.immediate.thumbColor.trim().toLowerCase(),liveTier.immediate.uiColor.toLowerCase(),'every visible picker wears the current displayed color')
+	assert.notEqual(liveTier.held.otherGradient,liveTier.immediate.otherGradient,'other-space gradients repaint on the held throttle')
+	assert.match(liveTier.held.otherGradient,/:8:off:/,'held secondary gradients use the reduced guide count')
+	assert.notEqual(liveTier.released.thumb,liveTier.beforeRelease.thumb,'release flushes the final picker position synchronously')
+	assert.notEqual(liveTier.released.otherGradient,liveTier.beforeRelease.otherGradient,'release repaints secondary gradients synchronously')
+	assert.match(liveTier.released.otherGradient,/:48:off:/,'released secondary sliders regain full-quality Light guides immediately')
+	assert.equal(liveTier.released.rows.length>1&&liveTier.released.rows.every(({s,key})=>key.includes(`:${s==='rgb'?1:48}:off:`)),true,'release repaints every visible catalog row at its full Light guide count')
+	assert.equal(liveTier.post.accent,liveTier.post.current,'native accent color catches up after release')
+	const cancelled=await page.evaluate(async()=>{ const src=document.querySelector('.ent[data-s="rgb"] .nrg[data-i="0"]'), lane=document.querySelector('.ent[data-s="p3"] .ch'), before=lane._g
+		src.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:18,isPrimary:true})); src.value=32; src.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))
+		src.dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerId:18,isPrimary:true})); return {before,after:lane._g} })
+	assert.notEqual(cancelled.after,cancelled.before,'pointer cancellation repaints catalog gradients synchronously')
+	assert.match(cancelled.after,/:48:off:/,'pointer cancellation restores full-quality Light guides immediately')
+	const customCatalogCancel=await page.evaluate(async()=>{ const ch=document.querySelector('.ent[data-s="rgb"] .ch'), back=document.querySelector('.ent[data-s="p3"] .ch'), r=ch.getBoundingClientRect(), capture=ch.setPointerCapture; ch.setPointerCapture=()=>{}
+		const pointer=(type,f)=>ch.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:21,isPrimary:true,clientX:r.left+r.width*f,clientY:r.top+r.height/2}))
+		pointer('pointerdown',.2); pointer('pointermove',.65); await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))); const active=ch.classList.contains('live'), held=back._g||back.closest('.ent').dataset.g
+		pointer('pointercancel',.65); ch.setPointerCapture=capture; return {active,parked:!ch.classList.contains('live'),held,after:back._g||back.closest('.ent').dataset.g} })
+	assert.equal(customCatalogCancel.active&&customCatalogCancel.parked,true,'pointer cancellation parks a custom catalog slider')
+	assert.notEqual(customCatalogCancel.after,customCatalogCancel.held,'custom catalog cancellation repaints ranges synchronously')
+	assert.match(customCatalogCancel.after,/:48:off:/,'custom catalog cancellation restores full-quality ranges')
+	await page.locator('#cval').fill('#123456'); await page.waitForFunction(()=>document.querySelector('#cd').value.toLowerCase()==='#123456')
+	assert.equal(await page.locator('#cd').inputValue(),'#123456','pointer cancellation releases the catalog drag guard')
+	const nonPointerRoot=await page.evaluate(async()=>{ const src=document.querySelector('.ent[data-s="rgb"] .nrg[data-i="0"]'); let writes=0
+		const observer=new MutationObserver(()=>writes++); observer.observe(document.documentElement,{attributes:true,attributeFilter:['style']})
+		for(let n=0;n<12;n++){ src.value=40+n*10; src.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>requestAnimationFrame(r)) }
+		const during=writes; src.dispatchEvent(new Event('change',{bubbles:true})); await new Promise(r=>setTimeout(r,250)); observer.disconnect(); return {during,after:writes} })
+	assert.equal(nonPointerRoot.during,0,'a rapid non-pointer input burst does not mutate inherited root style')
+	assert.equal(nonPointerRoot.after,1,'the native root accent updates once after the input burst settles')
 
 	const search = page.locator('#q')
 	await page.locator('.qx').click()
@@ -170,12 +207,23 @@ try {
 	await trigger.click()
 	await page.waitForSelector('#modal:not([hidden]) #dtitle')
 	assert.match(await page.locator('#dtitle').innerText(), /OKLCH/i, 'dossier opens')
+	assert.equal(await page.locator('#cseg').evaluate(el=>getComputedStyle(el).getPropertyValue('--cur').trim().toLowerCase()),(await page.locator('#cd').inputValue()).toLowerCase(),'dynamic dossier tabs receive the scoped current color')
 	const mode=async value=>{ await page.evaluate(v=>{ const q=document.getElementById('qseg'); q.value=v; q.dispatchEvent(new Event('change',{bubbles:true})) },value)   // the view select lives in the (closed) filter panel now — drive it by value, not by visibility
 		await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))) }
 	const sliderBoundaryParity=async s=>page.evaluate(s=>[...document.querySelector(`.ent[data-s="${s}"]`).querySelectorAll('.ch')].every((ch,i)=>{ const bg=ch._gradStack?.at(-1)?.style.background||ch.style.background||'', p=[...bg.matchAll(/([\d.]+)%/g)].map(m=>+m[1]), css=p.filter((x,k)=>k&&Math.abs(x-p[k-1])<1e-6)
 		const c=document.querySelector(`.bar2[data-i="${i}"] .bgc`), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data, gpu=[]; let a=d[3]>=20
 		for(let x=1;x<c.width;x++){ const next=d[x*4+3]>=20; if(next!==a){ gpu.push(x/c.width*100); a=next } }
 		return css.length===gpu.length&&css.every((x,k)=>Math.abs(x-gpu[k])<.6) }),s)
+	await mode('names')
+	const paletteLane=page.locator('.ent[data-s="oklab"] .ch').first(); await page.waitForFunction(()=>{ const el=document.querySelector('.ent[data-s="oklab"] .ch'); return (el._g||el.closest('.ent').dataset.g||'').endsWith(':names:oklab') })
+	const paletteBefore={color:await page.locator('#cd').inputValue(),key:await paletteLane.evaluate(el=>el._g||el.closest('.ent').dataset.g)}
+	await page.evaluate(()=>{ const m=document.getElementById('mseg'); m.value='de76'; m.dispatchEvent(new Event('change',{bubbles:true})) })
+	await page.waitForFunction(before=>{ const el=document.querySelector('.ent[data-s="oklab"] .ch'), key=el._g||el.closest('.ent').dataset.g||''; return key!==before&&key.endsWith(':names:de76') },paletteBefore.key)
+	const paletteAfter={color:await page.locator('#cd').inputValue(),key:await paletteLane.evaluate(el=>el._g||el.closest('.ent').dataset.g)}
+	assert.equal(paletteAfter.color,paletteBefore.color,'an exact named color stays fixed across palette metrics')
+	assert.notEqual(paletteAfter.key,paletteBefore.key,'a palette metric change repaints background gradients even when the color stays fixed')
+	assert.match(paletteAfter.key,/:names:de76$/,'settled catalog gradients carry the new palette metric')
+	await page.evaluate(()=>{ const m=document.getElementById('mseg'); m.value='oklab'; m.dispatchEvent(new Event('change',{bubbles:true})) }); await mode('smooth')
 	await mode('jnd')
 	const evenHex=await page.locator('#cd').inputValue(), evenRgb=[1,3,5].map(i=>parseInt(evenHex.slice(i,i+2),16))
 	assert.equal(Math.max(...evenRgb)-Math.min(...evenRgb)<=4,true,'even mode preserves the neutral axis')
@@ -190,22 +238,44 @@ try {
 	await page.waitForTimeout(50)
 	const smoothNeighbor=page.locator('.bar2[data-i="1"] .bgc'), smoothBefore=await smoothNeighbor.evaluate(el=>el.toDataURL()), transferBefore=await page.locator('#tcap').innerText()
 	const backPicker=page.locator('.ent[data-s="oklab"] .nrg').first(), backValue=page.locator('.ent[data-s="oklab"] .cv').first(), backLane=page.locator('.ent[data-s="oklab"] .ch').first()
-	const backBefore=await backLane.evaluate(el=>el._g||el.closest('.ent').dataset.g)
 	const smoothL=page.locator('.bar2[data-i="0"]'), smoothLR=await smoothL.boundingBox()
-	await page.mouse.move(smoothLR.x+smoothLR.width*.36,smoothLR.y+smoothLR.height/2); await page.mouse.down()
-	for(let n=0;n<50&&await backLane.evaluate((el,g)=>(el._g||el.closest('.ent').dataset.g)===g,backBefore);n++) await page.waitForTimeout(10)
-	const backMid={picker:await backPicker.inputValue(),value:await backValue.inputValue(),gradient:await backLane.evaluate(el=>el._g||el.closest('.ent').dataset.g)}, smoothMid=await smoothNeighbor.evaluate(el=>el.toDataURL())
+	await page.mouse.move(smoothLR.x+smoothLR.width*.36,smoothLR.y+smoothLR.height/2); await page.mouse.down(); await page.waitForTimeout(20)
+	const backMid={picker:await backPicker.inputValue(),pickerColor:await backPicker.evaluate(el=>getComputedStyle(el).getPropertyValue('--tkc')),value:await backValue.inputValue(),gradient:await backLane.evaluate(el=>el._g||el.closest('.ent').dataset.g)}, smoothMid=await smoothNeighbor.evaluate(el=>el.toDataURL())
 	await page.mouse.move(smoothLR.x+smoothLR.width*.46,smoothLR.y+smoothLR.height/2)
 	for(let n=0;n<30&&await smoothNeighbor.evaluate((el,before)=>el.toDataURL()===before,smoothMid||smoothBefore);n++) await page.waitForTimeout(10)
 	assert.equal(await page.locator('#bigch .nv').first().inputValue(),'0.46','dossier numeric input follows a smooth drag live')
 	assert.notEqual(await smoothNeighbor.evaluate(el=>el.toDataURL()),smoothMid||smoothBefore,'dossier neighboring gradients follow the active space live')
 	assert.notEqual(await page.locator('#tcap').innerText(),transferBefore,'transfer picker follows a held drag')
-	assert.notEqual(await backPicker.inputValue(),backMid.picker,'dossier drag moves background catalog picker positions live')
+	assert.notEqual(await backPicker.inputValue(),backMid.picker,'dossier drag updates every background catalog picker immediately')
+	assert.notEqual(await backPicker.evaluate(el=>getComputedStyle(el).getPropertyValue('--tkc')),backMid.pickerColor,'dossier drag updates every background picker color immediately')
+	assert.equal((await backPicker.evaluate(el=>getComputedStyle(el).getPropertyValue('--tkc').trim().toLowerCase())),(await page.locator('#cd').inputValue()).toLowerCase(),'background picker colors match the modal drag color')
 	await page.waitForTimeout(110)
 	assert.notEqual(await backValue.inputValue(),backMid.value,'dossier drag updates background catalog numbers on the 100ms tier')
 	await page.waitForTimeout(230)
-	assert.notEqual(await backLane.evaluate(el=>el._g||el.closest('.ent').dataset.g),backMid.gradient,'dossier drag catches other catalog gradients up on the throttle')
+	const backHeld=await backLane.evaluate(el=>el._g||el.closest('.ent').dataset.g)
+	assert.notEqual(backHeld,backMid.gradient,'dossier drag repaints background catalog gradients on the throttle')
+	assert.match(backHeld,/:8:off:/,'held background catalog gradients use reduced guides')
 	await page.mouse.up()
+	const backReleased=await backLane.evaluate(el=>el._g||el.closest('.ent').dataset.g)
+	assert.notEqual(backReleased,backHeld,'dossier release repaints background catalog gradients synchronously')
+	assert.match(backReleased,/:48:off:/,'dossier release restores full-quality background gradients immediately')
+	const nativeCancel=await page.evaluate(async()=>{ const r=document.querySelector('.bar2[data-i="1"] .nrg'), bar=r.closest('.bar2'), back=document.querySelector('.ent[data-s="oklab"] .ch'), frame=()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)))
+		r.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:19,isPrimary:true})); r.value=+r.min+(+r.max-+r.min)*.37; r.dispatchEvent(new Event('input',{bubbles:true})); await frame(); const active=bar.classList.contains('live'), held=back._g||back.closest('.ent').dataset.g
+		r.dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerId:19,isPrimary:true})); return {active,parked:!bar.classList.contains('live'),held,after:back._g||back.closest('.ent').dataset.g} })
+	assert.equal(nativeCancel.active&&nativeCancel.parked,true,'pointer cancellation parks a native dossier slider')
+	assert.notEqual(nativeCancel.after,nativeCancel.held,'native dossier cancellation repaints background ranges synchronously')
+	assert.match(nativeCancel.after,/:48:off:/,'native dossier cancellation restores full-quality background ranges')
+	await page.locator('#cval').fill('#234567'); await page.waitForFunction(()=>document.querySelector('#cd').value.toLowerCase()==='#234567')
+	assert.equal(await page.locator('#cd').inputValue(),'#234567','native pointer cancellation releases the dossier drag guard')
+	const customCancel=await smoothL.evaluate(async el=>{ const back=document.querySelector('.ent[data-s="oklab"] .ch'), r=el.getBoundingClientRect(), capture=el.setPointerCapture; el.setPointerCapture=()=>{}
+		const pointer=(type,f)=>el.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:20,isPrimary:true,clientX:r.left+r.width*f,clientY:r.top+r.height/2}))
+		pointer('pointerdown',.52); pointer('pointermove',.58); await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))); const active=el.classList.contains('live'), held=back._g||back.closest('.ent').dataset.g
+		pointer('pointercancel',.58); el.setPointerCapture=capture; return {active,parked:!el.classList.contains('live'),held,after:back._g||back.closest('.ent').dataset.g} })
+	assert.equal(customCancel.active&&customCancel.parked,true,'pointer cancellation parks a custom dossier slider')
+	assert.notEqual(customCancel.after,customCancel.held,'custom dossier cancellation repaints background ranges synchronously')
+	assert.match(customCancel.after,/:48:off:/,'custom dossier cancellation restores full-quality background ranges')
+	await page.locator('#cval').fill('#345678'); await page.waitForFunction(()=>document.querySelector('#cd').value.toLowerCase()==='#345678')
+	assert.equal(await page.locator('#cd').inputValue(),'#345678','custom pointer cancellation releases the dossier drag guard')
 	await mode('web')
 	const safeHex=await page.locator('#cd').inputValue(), safeRgb=[1,3,5].map(i=>parseInt(safeHex.slice(i,i+2),16))
 	assert.equal(safeRgb.every(v=>v%51===0),true,'safe mode lands on the 216-color web-safe lattice')
@@ -213,7 +283,9 @@ try {
 	const lbar=page.locator('.bar2[data-i="0"]'), lr=await lbar.boundingBox()
 	await page.mouse.move(lr.x+lr.width*.27,lr.y+lr.height/2); await page.mouse.down(); await page.waitForTimeout(30)
 	assert.equal(await page.locator('#bigch .nv').first().inputValue(),'0.27','quantized slider moves continuously while held')
-	await page.mouse.up(); await page.waitForTimeout(260)   // the release PARKS: a 180ms glide into the cell, so the read waits it out
+	await page.mouse.up()
+	assert.match(await page.locator('.ent[data-s="oklch"] .ch').first().evaluate(el=>el._g||el.closest('.ent').dataset.g),/^oklch\|0\.25,.*:0:48:off:10$/,'release synchronously repaints catalog ranges from the final snapped value')
+	await page.waitForTimeout(260)   // the release PARKS: a 180ms glide into the cell, so the read waits it out
 	assert.equal(await page.locator('#bigch .nv').first().inputValue(),'0.25','quantized slider snaps to its cell center on release')
 	await page.mouse.click(lr.x+lr.width*.01,lr.y+lr.height/2); await page.waitForTimeout(260)
 	assert.equal(await page.locator('#bigch .nv').first().inputValue(),'0.05','10-step first cell selects its center, not an extra minimum')
@@ -242,28 +314,27 @@ try {
 		return Math.abs(mf-(lo+hi+1)/2)<=2 },await page.locator('#cd').inputValue())
 	assert.equal(nameCentered,true,'palette slider marker settles at the visual region center')
 	await mode('smooth')
-	// the validity-parity scenario needs BOTH sweep ends to void – true under the SURFACE
-	// lens (near-white chroma leaves the object-color solid); under the light default the
-	// bright end is a real light and honestly stays. Drive the lens explicitly, restore after.
+	// The catalog is always Light; the dossier alone wears the selected Surface limit.
+	// Both still void imaginary coordinates at the same locus boundary.
 	await page.evaluate(()=>{ const g=document.getElementById('gseg'); g.value='vis'; g.dispatchEvent(new Event('change',{bubbles:true})) })
 	await page.waitForTimeout(200)
 	for(const [i,v] of [[0,'0.30'],[1,'0.143'],[2,'263']]) await page.locator('#bigch .nv').nth(i).fill(v)
+	await page.waitForFunction(()=>{ const el=document.querySelector('.ent[data-s="oklch"] .ch[data-i="0"]'), bg=el._gradStack?.at(-1)?.style.background||el.style.background||''; return /(?:\/ 0\)|,\s*0\))/.test(bg) }); await page.waitForTimeout(400)
 	const cbar=page.locator('.bar2[data-i="1"]'), cr=await cbar.boundingBox()
-	await page.mouse.move(cr.x+cr.width*(.143/.4),cr.y+cr.height/2); await page.mouse.down(); await page.mouse.move(cr.x+cr.width*(.143/.4)+2,cr.y+cr.height/2)
-	await page.waitForFunction(()=>{ const el=document.querySelector('.ent[data-s="oklch"] .ch[data-i="0"]'), bg=el._gradStack?.at(-1)?.style.background||el.style.background||''; return /(?:\/ 0\)|,\s*0\))/.test(bg) }); await page.waitForTimeout(700)
+	await page.mouse.move(cr.x+cr.width*(.143/.4),cr.y+cr.height/2); await page.mouse.down(); await page.mouse.move(cr.x+cr.width*(.143/.4)+2,cr.y+cr.height/2); await page.waitForTimeout(100)
 	const validityEdges=await page.evaluate(()=>{ const main=document.querySelector('.ent[data-s="oklch"] .ch[data-i="0"]'), dossier=document.querySelector('.bar2[data-i="0"] .bgc')
 		const mbg=main._gradStack?.at(-1)?.style.background||main.style.background||''
-		const d=dossier.getContext('2d').getImageData(0,0,dossier.width,dossier.height).data; let first=-1
-		for(let x=0;x<dossier.width;x++) if(d[x*4+3]>=20){ first=x; break }
-		return {mainVoid:/(?:\/ 0\)|,\s*0\))/.test(mbg),mainGhost:/(?:\/ 0\.5\)|,\s*0\.5\))/.test(mbg),dossierVoid:first>0} })
-	assert.equal(validityEdges.mainVoid&&validityEdges.dossierVoid&&validityEdges.mainGhost,true,'both surfaces void at the locus edge and ghost beyond the surface solid')
+		const d=dossier.getContext('2d').getImageData(0,0,dossier.width,dossier.height).data; let first=-1, ghost=false
+		for(let x=0;x<dossier.width;x++){ const a=d[x*4+3]; if(first<0&&a>=20) first=x; if(a>=80&&a<=180) ghost=true }
+		return {mainVoid:/(?:\/ 0\)|,\s*0\))/.test(mbg),mainGhost:/(?:\/ 0\.5\)|,\s*0\.5\))/.test(mbg),dossierVoid:first>0,dossierGhost:ghost} })
+	assert.equal(validityEdges.mainVoid&&!validityEdges.mainGhost&&validityEdges.dossierVoid&&validityEdges.dossierGhost,true,'catalog gradients stay on Light while the held dossier shows the Surface limit')
 	await page.mouse.up(); await page.waitForTimeout(700)
 	const settledEdges=await page.evaluate(()=>{ const main=document.querySelector('.ent[data-s="oklch"] .ch[data-i="0"]'), c=document.querySelector('.bar2[data-i="0"] .bgc'), bg=main._gradStack?.at(-1)?.style.background||main.style.background||''
 		const p=[...bg.matchAll(/([\d.]+)%/g)].map(m=>+m[1]), hard=p.filter((x,i)=>i&&Math.abs(x-p[i-1])<1e-6), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let first=-1
 		for(let x=0;x<c.width;x++)if(d[x*4+3]>=20){ first=x; break }
 		return {main:hard[0],dossier:first/c.width*100} })
-	assert.equal(isFinite(settledEdges.main)&&Math.abs(settledEdges.main-settledEdges.dossier)/100<.03,true,'main and dossier sliders settle to the same locus boundary')
-	await page.evaluate(()=>{ const g=document.getElementById('gseg'); g.value='locus'; g.dispatchEvent(new Event('change',{bubbles:true})) })   // back to the light default
+	assert.equal(isFinite(settledEdges.main)&&Math.abs(settledEdges.main-settledEdges.dossier)/100<.03,true,'Light catalog and limited dossier share the same locus boundary')
+	await page.evaluate(()=>{ const g=document.getElementById('gseg'); g.value='vis'; g.dispatchEvent(new Event('change',{bubbles:true})) })   // restore the dossier default
 	// the exporters ride the plates rail: label + target select + download buttons
 	assert.match(await page.locator('#dex').innerText(), /conversion lut/i, 'LUT block rides the dossier rail')
 	assert.equal(await page.locator('#dex #dldl').count() + await page.locator('#dex #didl').count(), 2, 'cube + icc downloads present')
@@ -364,14 +435,16 @@ try {
 	assert.equal(bottomPickers.positioned,true,'newly visible catalog picker positions catch up to the current color')
 	await motion.evaluate(()=>scrollTo(0,0)); await motion.waitForTimeout(180)
 	const interrupted=await motion.evaluate(async()=>{ const src=document.querySelector('.ent[data-s="rgb"] .nrg'), lane=document.querySelector('.ent[data-s="p3"] .ch'), sleep=ms=>new Promise(r=>setTimeout(r,ms))
-		const g0=lane._g||lane.closest('.ent').dataset.g; src.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:29,isPrimary:true})); src.value=160; src.dispatchEvent(new Event('input',{bubbles:true}))
+		const g0=lane._g||lane.closest('.ent').dataset.g; src.value=160; src.dispatchEvent(new Event('input',{bubbles:true}))
 		for(let n=0;n<80&&((lane._g||lane.closest('.ent').dataset.g)===g0||!lane._gradStack?.length);n++) await sleep(10)
 		const inFlight=lane._gradStack?.at(-1), before=inFlight?+getComputedStyle(inFlight).opacity:0
-		src.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:29,isPrimary:true})); src.dispatchEvent(new Event('change',{bubbles:true})); await new Promise(r=>requestAnimationFrame(r))
+		src.value=190; src.dispatchEvent(new Event('input',{bubbles:true}))
+		for(let n=0;n<80&&(!lane._gradStack||lane._gradStack.at(-1)===inFlight);n++) await sleep(10)
+		src.dispatchEvent(new Event('change',{bubbles:true})); await new Promise(r=>requestAnimationFrame(r))
 		const stack=lane._gradStack||[], after=inFlight&&stack.includes(inFlight)?+getComputedStyle(inFlight).opacity:-1
 		const result={layers:stack.length,preserved:stack.includes(inFlight),before,after,opaqueUnderlay:stack.slice(0,-1).some(el=>+getComputedStyle(el).opacity===1)}
 		await sleep(500); result.remaining=lane._gradStack?.length||0; return result })
-	assert.equal(interrupted.layers>=3,true,'an interrupted gradient transition retains its in-flight composite')
+	assert.equal(interrupted.layers>=2,true,'an interrupted gradient transition retains its in-flight composite')
 	assert.equal(interrupted.preserved&&interrupted.after>=interrupted.before,true,'the prior layer continues from its current opacity instead of resetting')
 	assert.equal(interrupted.opaqueUnderlay,true,'an interrupted transition keeps an opaque color field underneath—never paper')
 	assert.equal(interrupted.remaining,1,'covered transition layers are removed after the newest field lands')
